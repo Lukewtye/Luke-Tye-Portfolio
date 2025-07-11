@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <style>
+</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Luke Tye Portfolio</title>
+  <link rel="stylesheet" href="style.css"> <!--This is the reference for CSS-->
+  <link rel="stylesheet" href="mediaqueries.css"> 
+</head>
+<body>
+  <nav id = "desktop-nav"> <!--This is sectional code for the top nav-->
+    <div class ="logo">Luke Tye</div>
+    <div>
+      <ul class = "nav-links">
+      <li><a href="#about">About</a></li>
+      <li><a href="#experience">Experience</a></li>
+      <li><a href="#projects">Projects</a></li>
+      <li><a href="#contact">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+  <nav id = "hamburger-nav">
+    <div class ="logo">Luke Tye</div>
+    <div class = "hamburger-menu ">
+      <div class = "hamburger-icon" onclick = "toggleMenu()">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class = "menu-links">
+        <li><a href="#about" onclick = "toggleMenu()">About</a></li>
+        <li><a href="#experience" onclick = "toggleMenu()">Experience</a></li>
+        <li><a href="#projects" onclick = "toggleMenu()">Projects</a></li>
+        <li><a href="#contact" onclick = "toggleMenu()">Contact</a></li>
+      </div>
+      </div>
+  </nav>
+  <section id = "profile">
+    <div class = "section__pic - container">
+        <img src = "assets/headshot.png">
+    </div>
+    <div class = "section__text">
+      <p class = "section__text__p1">Hello, I'm </p>
+      <h1 class = "title"> Luke Tye</h1>
+      <p class = "section__text__p2"> Computer Science Student</p>
+      <div class = "btn_container">
+        <button class = "btn btn-color-2" onclick="window.open('assets/Luke Tye Resume - Lifeguard.pdf')"> Download CV
+
+        </button>
+      </div>
+    </div>
+  </section>
+  <script src="script.js"></script>
+</body>
+</html>
