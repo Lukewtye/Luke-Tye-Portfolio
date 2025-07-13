@@ -8,5 +8,7 @@ function toggleMenu() {
 /* Things to fix 
 Make the links under the hamburger menu
 Make an animation for the hamburger menu smoother
+Make the website links open to a new tab
+Fix email link
 */
 
