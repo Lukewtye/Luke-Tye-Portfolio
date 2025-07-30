@@ -191,6 +191,7 @@
         .section__text { 
             align-self: center;
             text-align: center;
+            margin-bottom: 3rem;
         }
         .section__text { 
             font-weight: 600;
@@ -228,21 +229,51 @@
             display: flex;
             justify-content: center;
             gap: 1rem;
+            
         }
 
         .btn { 
             font-weight: 600;
-            transition: 300ms ease;
+            transition: all 300ms ease;
             padding: 1rem;
             width: 8rem;
-            border-radius: 2rem;
+            border-radius: 8px;
+
         }
 
         .btn-color-1, .btn-color-2 { 
-            border: grey 0.1rem;
+            border: grey 0.1rem solid;
         }
         .btn-color-1:hover, .btn-color-2:hover { 
-            border: lightblue 0.3rem;
+            cursor: pointer;
         }
 
+        .btn-color-1:hover, .btn-color-2:hover { 
+            background: rgb(53, 53, 53);
+            color: white
+        }
 
+        .btn-color-1:hover { 
+            background: rgb(0, 0, 0);
+        }
+
+        .btn-color-2 { 
+            background: none;
+        }
+
+        .btn-color-2:hover { 
+            border: rgb(white, white, white);
+        }
+
+        .btn_container { 
+            gap: 1rem;
+        }
+
+        /* New container for buttons and socials */
+        .section__actions {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
