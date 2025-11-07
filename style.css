@@ -214,11 +214,13 @@
         }
 
         .socials_container { 
+            
             display: flex;
             justify-content: center;
             margin-top: 0.1rem;
             gap: 1rem;
         }
+
 
         .section__text__p2 { 
             margin-bottom: 0.7rem;
@@ -230,6 +232,10 @@
             cursor: pointer;
             height: 2rem;
             justify-content: cet;
+        }
+        
+        .socials_container img[src="assets/email.png"] {
+            transform: scale(1.2);
         }
 
         /* BUTTON STYLING */
@@ -290,7 +296,6 @@
         /* About Section Styling */
         #about { 
             position: relative;
-
         }
         
         .about-containers { 
