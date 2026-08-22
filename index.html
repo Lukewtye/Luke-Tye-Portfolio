@@ -404,7 +404,17 @@
       position: static;
       display: block;
       padding: 32px max(20px, 4vw) 0;
-      height: 360px;
+      /* Not an arbitrary number: initDriftWall's own per-tile vertical fade
+         (vFade: 0.78) computes a ~111px fade zone top and bottom from
+         tileHeight(132)+gap(10) — that math assumes a tall container like
+         desktop's full section height. At the previous 360px this left
+         under 106px of genuinely solid middle, less than one tile, so
+         nearly every tile sat inside a fade zone and got sliced by the
+         box's own overflow:hidden mid-tile instead of fading out cleanly.
+         4 tile-rows (4 * (132+10) = 568px) leaves real solid middle space
+         for the existing fade design to actually read as a fade, not a
+         crop. */
+      height: 568px;
     }
   }
   /* Just enough to keep tiles from rendering directly under the rail's own
