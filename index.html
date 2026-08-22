@@ -93,10 +93,16 @@
        clipped 3D-transformed content out of the page's own scrollable
        overflow, so without this, window.innerWidth itself grows to fit it
        and the whole page becomes sideways-pannable on mobile. This closes
-       that leak; it isn't hiding any content that was otherwise visible. */
-    overflow-x: hidden;
+       that leak; it isn't hiding any content that was otherwise visible.
+       Using clip, not hidden: setting only overflow-x (not overflow-y)
+       makes the UA compute overflow-y as auto per spec, turning body/html
+       into their own scroll containers -- which broke .chrome's
+       position:sticky header (stuck relative to the wrong box) the moment
+       this was added. overflow-x:clip doesn't establish a scroll
+       container, so it closes the same leak without that side effect. */
+    overflow-x: clip;
   }
-  html { overflow-x: hidden; }
+  html { overflow-x: clip; }
 
   .mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
   .sans { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
