@@ -122,7 +122,7 @@
   header.top { border-bottom: 1px solid var(--line); padding: 20px 0; }
   .topbar { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
   .wordmark { font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
-  nav.mono { display: flex; gap: 20px; font-size: 0.8125rem; letter-spacing: 0.04em; color: var(--ink-dim); }
+  nav.mono { display: flex; flex-wrap: wrap; gap: 20px; font-size: 0.8125rem; letter-spacing: 0.04em; color: var(--ink-dim); }
   nav.mono a { text-decoration: none; display: inline-block; transition: color 120ms ease-out, transform 100ms ease-out, opacity 100ms ease-out; }
   nav.mono a:hover { color: var(--accent); }
   nav.mono a:active { color: var(--accent); transform: scale(0.96); opacity: 0.8; }
@@ -190,7 +190,14 @@
   .about-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; align-items: center; }
   @media (max-width: 900px) { .about-grid { grid-template-columns: 1fr; } }
 
-  .pi5-panel { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  /* min-width:0 has to sit here, not just on .pi5-stage below -- this is
+     the actual .about-grid item, and a grid item's own default
+     min-width:auto derives from its descendants' min-content regardless of
+     min-width overrides set further down the tree. Without it here too,
+     the single-column mobile grid still sized its one track to
+     .pi5-object's fixed 400px width and pushed the thesis paragraph in
+     the other grid item off the right edge of the viewport. */
+  .pi5-panel { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
   .pi5-caption { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); text-align: center; line-height: 1.6; }
 
   /* pi5 — a real, colored, orbitable 3D board. drag rotates it freely (1:1
@@ -213,6 +220,16 @@
   .pi5-stage {
     --pw: 400px; --ph: 250px; --pd: 16px; --s: 1;
     width: 100%;
+    /* .pi5-object below is a fixed var(--pw) (400px) wide flex child --
+       needed so its cube-face math stays correct regardless of --s -- and
+       a flex item's default min-width:auto makes its automatic minimum
+       equal to that content size. Without overriding it, .pi5-stage could
+       never actually shrink below ~400px no matter what width:100% here
+       asked for, forcing #about's single-column mobile grid (and the
+       thesis paragraph sharing that column) to grow to fit it and
+       overflow the viewport -- transform:scale below only repaints the
+       object smaller, it doesn't change this layout-sizing math at all. */
+    min-width: 0;
     display: flex; justify-content: center; align-items: center;
     padding: 16px 0 24px;
     perspective: 1500px;
