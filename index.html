@@ -1,4 +1,6 @@
+<!DOCTYPE html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Luke Tye</title>
 <style>
 
@@ -85,7 +87,16 @@
     color: var(--ink);
     font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
     -webkit-font-smoothing: antialiased;
+    /* The skills drift-wall (perspective + preserve-3d tiles) is already
+       clipped visually by its own ancestors' overflow:hidden and edge
+       mask — nothing extra is ever shown. But Chromium doesn't count that
+       clipped 3D-transformed content out of the page's own scrollable
+       overflow, so without this, window.innerWidth itself grows to fit it
+       and the whole page becomes sideways-pannable on mobile. This closes
+       that leak; it isn't hiding any content that was otherwise visible. */
+    overflow-x: hidden;
   }
+  html { overflow-x: hidden; }
 
   .mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
   .sans { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
@@ -313,7 +324,7 @@
      to just the text, so it still reads as part of the same left-anchored
      column as every other section while the wall behind it goes edge to
      edge. */
-  #skills { max-width: none; margin-left: 0; padding: 0; position: relative; overflow: hidden; }
+  #skills { max-width: none; margin-left: 0; padding: 0; position: relative; overflow: hidden; contain: paint; }
   .section-text {
     position: relative;
     z-index: 1;
@@ -367,6 +378,34 @@
     padding: 0 max(20px, 4vw);
     padding-left: clamp(28px, 8vw, 120px);
     box-sizing: border-box;
+    /* The actual clip boundary for the drift wall's preserve-3d plane.
+       #skillsDrift also has overflow:hidden, but it also establishes the
+       perspective/3D rendering context — Blink doesn't reliably clip
+       preserve-3d descendants against overflow:hidden on the same element
+       that creates their 3D context. Putting the clip on this plain 2D
+       ancestor instead (no perspective/transform of its own) clips
+       correctly regardless of what the 3D plane does inside it. */
+    overflow: hidden;
+    contain: paint;
+  }
+  /* Mobile: the wall stops being an absolutely-positioned overlay behind
+     the text card (that only works because #skills is tall enough on
+     desktop for the card to sit inside the wall's own full-height box) and
+     becomes a normal-flow block of its own, after the text card, with a
+     real height — a genuine separate section, not content squeezed into
+     whatever room is left inside a fixed min-height:100vh box. An
+     absolutely-positioned child can never make its container grow to fit
+     it, which is exactly why the wall was being cropped: #skills's height
+     was capped at min-height:100vh regardless of how much room the wall
+     actually needed once pushed below the text. */
+  @media (max-width: 760px) {
+    #skills { min-height: 0; display: block; padding: 96px 0; }
+    .skill-wall-wrap {
+      position: static;
+      display: block;
+      padding: 32px max(20px, 4vw) 0;
+      height: 360px;
+    }
   }
   /* Just enough to keep tiles from rendering directly under the rail's own
      dots (it's 130px wide, sitting at right:32px) — this was max(190px,4vw)
@@ -380,6 +419,12 @@
     max-width: 1320px;
     height: 100%;
     overflow: hidden;
+    /* overflow:hidden alone doesn't clip descendants under preserve-3d/
+       perspective (.drift-wall__plane and its columns) — contain:paint
+       forces this element to establish a real clipping boundary for them,
+       instead of letting the plane's full drift width push the page's
+       own scrollWidth past the viewport. */
+    contain: paint;
     perspective: var(--dw-perspective, 1200px);
     perspective-origin: 50% 50%;
     /* Horizontal-only now — the vertical fade moved to JS, computed per
@@ -1251,9 +1296,16 @@
         var textRect = textEl.getBoundingClientRect();
         var wrapRect = wrapEl.getBoundingClientRect();
         if (mobile) {
+          // .skill-wall-wrap is position:static on mobile now (see the
+          // max-width:760px rule), stacked below the card by normal
+          // document flow plus a fixed CSS padding-top — not by measuring
+          // wrapRect.top and writing an inline padding-top back onto the
+          // same element that rect was just measured from. That was
+          // self-referential: each call's wrapRect.top already reflected
+          // the previous call's padding-top, so it only ever converged by
+          // accident rather than by construction.
           wrapEl.style.paddingLeft = '';
-          var neededTop = (textRect.bottom - wrapRect.top) + 32;
-          wrapEl.style.paddingTop = Math.max(neededTop, 0).toFixed(0) + 'px';
+          wrapEl.style.paddingTop = '';
         } else {
           wrapEl.style.paddingTop = '';
           var minVisibleWall = 360;
