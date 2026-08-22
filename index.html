@@ -421,17 +421,18 @@
       position: static;
       display: block;
       padding: 32px max(20px, 4vw) 0;
-      /* Not an arbitrary number: initDriftWall's own per-tile vertical fade
-         (vFade: 0.78) computes a ~111px fade zone top and bottom from
-         tileHeight(132)+gap(10) — that math assumes a tall container like
-         desktop's full section height. At the previous 360px this left
-         under 106px of genuinely solid middle, less than one tile, so
-         nearly every tile sat inside a fade zone and got sliced by the
-         box's own overflow:hidden mid-tile instead of fading out cleanly.
-         4 tile-rows (4 * (132+10) = 568px) leaves real solid middle space
-         for the existing fade design to actually read as a fade, not a
-         crop. */
-      height: 568px;
+      /* Not an arbitrary number: initDriftWall's per-tile vertical fade
+         (vFade: 0.78) and its buildColumns() copy count are both tuned
+         against a tall container — desktop's whole min-height:100vh
+         section. A short fixed box (560-ish px, tried first) starved both:
+         the fade zones ate nearly the whole box, and there wasn't enough
+         vertical track built to keep the window filled through a full
+         drift cycle, so real devices showed mostly empty space with tiles
+         only clustered near one edge. Matching desktop's own scale
+         (100dvh) instead of guessing a smaller constant gives this
+         existing, already-proven math the room it actually needs. */
+      height: 100vh;
+      height: 100dvh;
     }
   }
   /* Just enough to keep tiles from rendering directly under the rail's own
@@ -1010,7 +1011,7 @@
       entries.forEach(function (entry) {
         if (entry.isIntersecting && !played) {
           played = true;
-          var fromY = restY - 46;
+          var fromY = restY - 55.2; // 46deg sweep + 20%
           var t0 = null;
           function introTick(ts) {
             if (t0 === null) t0 = ts;
@@ -1288,7 +1289,27 @@
       }
       raf = requestAnimationFrame(tick);
     }
-    function start() { if (!raf) { lastTs = null; raf = requestAnimationFrame(tick); } }
+    var rebuiltOnFirstStart = false;
+    function start() {
+      if (!rebuiltOnFirstStart) {
+        // containerHeight was first read at script-execution time (var
+        // containerHeight = root.clientHeight || 560). On mobile the wall's
+        // box height comes from 100dvh, which some browsers don't finish
+        // resolving until after the first layout/paint pass -- if that
+        // read landed on a stale or fallback value, buildColumns() sized
+        // too few vertical copies for the container it's actually in,
+        // leaving real gaps no per-frame animation logic then fixes. This
+        // element is only just now intersecting the viewport for the
+        // first time, guaranteeing a real, current clientHeight, so redo
+        // both against it once here rather than trusting the load-time
+        // read.
+        rebuiltOnFirstStart = true;
+        containerHeight = root.clientHeight || containerHeight;
+        buildColumns();
+        measureGeometry();
+      }
+      if (!raf) { lastTs = null; raf = requestAnimationFrame(tick); }
+    }
     function stop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
 
     // Two layouts, chosen by viewport width, both measured against the
