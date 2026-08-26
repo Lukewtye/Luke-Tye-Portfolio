@@ -471,7 +471,13 @@
     -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--dw-edge), #000 calc(100% - var(--dw-edge)), transparent);
     mask-image: linear-gradient(to right, transparent, #000 var(--dw-edge), #000 calc(100% - var(--dw-edge)), transparent);
   }
-  .drift-wall__plane { position: absolute; top: 50%; left: 50%; display: flex; flex-direction: row; transform-style: preserve-3d; cursor: pointer; will-change: transform; }
+  /* The centring translate lives here as well as in applyPlaneTransform()'s
+     JS string. top/left:50% alone put the plane's top-LEFT CORNER at the
+     box's centre, so without a translate the wall renders entirely into the
+     box's bottom-right quadrant. Declaring it in CSS means that layout is
+     correct before any script runs and stays correct if the JS transform is
+     ever invalid again. */
+  .drift-wall__plane { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: row; transform-style: preserve-3d; cursor: pointer; will-change: transform; }
   .drift-wall__col { position: relative; width: calc(var(--dw-tile-w) + var(--dw-gap)); transform-style: preserve-3d; }
   .drift-wall__track { display: flex; flex-direction: column; will-change: transform; transform-style: preserve-3d; }
   .drift-wall__tile { position: relative; display: block; width: 100%; height: calc(var(--dw-tile-h) + var(--dw-gap)); flex: 0 0 auto; outline: none; transform-style: preserve-3d; text-decoration: none; color: inherit; }
@@ -1096,15 +1102,44 @@
     var containerHeight = root.clientHeight || 560;
     var unit = cfg.tileHeight + cfg.gap;
     var tracks = [], columnMeta = [], offsets = [], velocities = [], tilesByCol = [];
+    // Height of the tallest column, i.e. the plane's own height. Needed
+    // because the plane is centred in the box, so a tile's y within its
+    // track is offset from its y within the box -- see tick().
+    var planeHeight = 0;
+    // Multiplier applied to the plane so its PROJECTED width fits the box.
+    // Recomputed by fitPlaneScale() whenever the box or the track changes.
+    var planeScale = 1.08;
     var tileSeq = 0;
+
+    // The box's height expressed in the plane's OWN un-scaled units. The
+    // plane is uniformly scaled to fit the box's width, and a uniform scale
+    // shrinks it vertically too -- so a track built to cover containerHeight
+    // covers only planeScale * containerHeight once rendered, leaving dead
+    // bands at the top and bottom of the box (4 of 10 bands empty at 1024px
+    // before this). Laying the track out against containerHeight/planeScale
+    // makes it fill the box exactly after the scale is applied.
+    function fitHeight() { return containerHeight / (planeScale || 1); }
 
     function buildColumns() {
       plane.innerHTML = '';
       tracks = [];
+      planeScale = fitPlaneScale();
+      var boxH = fitHeight();
       tilesByCol = columnItems.map(function () { return []; });
       columnMeta = columnItems.map(function (col) {
         var copyHeight = Math.max(unit, col.length * unit);
-        var copies = Math.max(2, Math.ceil((containerHeight * 1.6) / copyHeight) + 1);
+        // The plane is centred on the box, and each track scrolls by up to
+        // one full copyHeight before wrapping. Worst case (offset just shy
+        // of a wrap) the track's painted span is
+        //   [planeTop - copyHeight, planeTop + planeHeight - copyHeight],
+        // with planeTop = (containerHeight - planeHeight) / 2, so covering
+        // the box end-to-end at every phase needs
+        //   planeHeight >= containerHeight + 2 * copyHeight.
+        // The old formula (1.6x the height, +1 copy) satisfied that only by
+        // luck and dropped to 2 copies on a phone -- which left the lower
+        // half of the box genuinely empty for part of every drift cycle,
+        // no matter how the fades were tuned.
+        var copies = Math.max(3, Math.ceil(boxH / copyHeight) + 2);
         return { copyHeight: copyHeight, copies: copies };
       });
 
@@ -1156,6 +1191,7 @@
       // of a cycle apart, which is what let their fade-band crossings fall
       // close enough together to read as a cluster of tiles disappearing
       // at once instead of five independent columns.
+      planeHeight = columnMeta.reduce(function (h, m) { return Math.max(h, m.copies * m.copyHeight); }, 0);
       offsets = columnMeta.map(function (meta, c) { return meta.copyHeight * ((c * 0.6180339887) % 1); });
       velocities = columnItems.map(function () { return 0; });
     }
@@ -1174,11 +1210,60 @@
       return cfg.speed * columnFactor(c, cfg.variance) * dirSign * altSign;
     });
 
+    // Every number below goes through num(). A CSS transform is parsed as a
+    // single declaration: one `undefined` anywhere in the string makes Blink
+    // reject the WHOLE value, leaving the element at `transform: none`. That
+    // is not hypothetical -- `roll` was never present in the config passed
+    // in below, so this function wrote "rotateZ(undefineddeg)" every frame,
+    // the declaration was dropped every frame, and the plane silently lost
+    // its `translate(-50%, -50%)` on every viewport. With top/left:50% and
+    // no translate, the plane's top-left corner sits at the box's centre,
+    // so the wall rendered into the bottom-right quadrant of its own box --
+    // the "mostly empty space with tiles clustered near one edge" symptom.
+    // Desktop hid the horizontal half of it because measureGeometry()'s
+    // padding calibration measures column 0's real position and compensates;
+    // mobile skips that calibration entirely, so it showed the raw fault.
+    function num(v, fallback) { return typeof v === 'number' && isFinite(v) ? v : fallback; }
+
+    // The plane is rotated about X and Y and pushed back in Z, so what the
+    // viewer sees is WIDER than the plane's own width -- and by an amount
+    // that depends on the box's height, because rotateX swings the rows near
+    // the box's top and bottom edges toward the camera where perspective
+    // magnifies them most. Sizing columns off window.innerWidth alone
+    // ignored all of that, so the outermost column kept getting hard-cut
+    // mid-label: 8 labels clipped at 320px, 5 at 768px.
+    //
+    // Rather than hand-tune a magic tile width per breakpoint, solve for the
+    // worst case directly. The nearest point of the plane sits at
+    //   z = depth - (planeW/2)|sin(turn)| - (boxH/2)|sin(tilt)|
+    // and perspective magnifies it by P / (P + z); the plane's own width
+    // foreshortens by cos(turn). Scale the plane by whatever keeps that
+    // projected width inside the box, capping at the original 1.08 so wide
+    // viewports are unchanged.
+    function fitPlaneScale() {
+      var boxW = root.clientWidth;
+      if (!boxW) return 1.08;
+      var rad = Math.PI / 180;
+      var turn = num(cfg.turn, 0) * rad;
+      var tilt = num(cfg.tilt, 0) * rad;
+      var perspective = num(cfg.perspective, 1200);
+      var planeW = cfg.columns * (cfg.tileWidth + cfg.gap);
+      var zNear = num(cfg.depth, 0)
+        - (planeW / 2) * Math.abs(Math.sin(turn))
+        - (containerHeight / 2) * Math.abs(Math.sin(tilt));
+      var mag = perspective / Math.max(1, perspective + zNear);
+      var projected = planeW * Math.cos(turn) * mag;
+      if (projected <= 0) return 1.08;
+      // 0.98 keeps a hair of margin so the outermost label lands inside the
+      // box rather than exactly on its clipping edge.
+      return Math.min(1.08, (boxW * 0.98) / projected);
+    }
+
     function applyPlaneTransform(px, py) {
       plane.style.transform =
-        'translate(-50%, -50%) scale(1.08) ' +
-        'rotateX(' + (cfg.tilt + py) + 'deg) rotateY(' + (cfg.turn + px) + 'deg) rotateZ(' + cfg.roll + 'deg) ' +
-        'translateZ(' + (-cfg.depth) + 'px)';
+        'translate(-50%, -50%) scale(' + planeScale.toFixed(4) + ') ' +
+        'rotateX(' + (num(cfg.tilt, 0) + py) + 'deg) rotateY(' + (num(cfg.turn, 0) + px) + 'deg) rotateZ(' + num(cfg.roll, 0) + 'deg) ' +
+        'translateZ(' + (-num(cfg.depth, 0)) + 'px)';
     }
 
     function activate(tile, c) {
@@ -1236,6 +1321,12 @@
         // structural guarantee instead of something that only holds at
         // whatever height the section happened to render at.
         var fadeWidth = unit * cfg.vFade;
+        // Everything below is in the plane's own units, so the box's height
+        // and the card's box both have to be converted into them.
+        var boxH = fitHeight();
+        var planeTop = (boxH - planeHeight) / 2;
+        var cardTop = cardZone ? cardZone.top / (planeScale || 1) : 0;
+        var cardBottom = cardZone ? cardZone.bottom / (planeScale || 1) : 0;
         for (var c = 0; c < tracks.length; c++) {
           var meta = columnMeta[c];
           if (!meta) continue;
@@ -1267,10 +1358,19 @@
           var avoidCard = cardZone && colRange && colRange.right > cardZone.left && colRange.left < cardZone.right;
           var list = tilesByCol[c];
           for (var t = 0; t < list.length; t++) {
-            var y = list[t].baseY - next;
+            // baseY is measured from the TRACK's top. Everything below --
+            // the top/bottom edge fades against containerHeight, and
+            // cardZone, which measureGeometry() records relative to the wall
+            // box -- works in BOX space. The plane is centred (top:50% plus
+            // translate(-50%)), so the track's top sits planeTop above the
+            // box's top, a large negative number since the plane is several
+            // boxes tall. Without this term the fade math was comparing two
+            // different coordinate spaces: it faded out exactly the tiles
+            // that were on screen and kept the ones scrolled far off it.
+            var y = list[t].baseY - next + planeTop;
             var mid = y + cfg.tileHeight / 2;
             var top = fadeWidth > 0 ? Math.max(0, Math.min(1, mid / fadeWidth)) : 1;
-            var bot = fadeWidth > 0 ? Math.max(0, Math.min(1, (containerHeight - mid) / fadeWidth)) : 1;
+            var bot = fadeWidth > 0 ? Math.max(0, Math.min(1, (boxH - mid) / fadeWidth)) : 1;
             var op = Math.max(0, Math.min(top, bot));
             // A tile whose column crosses the text card's own horizontal
             // span dissolves as it nears the card's vertical range instead
@@ -1280,11 +1380,11 @@
             // container's.
             if (avoidCard) {
               var tileBottom = y + cfg.tileHeight;
-              if (tileBottom > cardZone.top - fadeWidth && y < cardZone.bottom + fadeWidth) {
-                var avoid = mid < cardZone.top
-                  ? Math.max(0, Math.min(1, (cardZone.top - mid) / fadeWidth))
-                  : mid > cardZone.bottom
-                    ? Math.max(0, Math.min(1, (mid - cardZone.bottom) / fadeWidth))
+              if (tileBottom > cardTop - fadeWidth && y < cardBottom + fadeWidth) {
+                var avoid = mid < cardTop
+                  ? Math.max(0, Math.min(1, (cardTop - mid) / fadeWidth))
+                  : mid > cardBottom
+                    ? Math.max(0, Math.min(1, (mid - cardBottom) / fadeWidth))
                     : 0;
                 op = Math.min(op, avoid);
               }
@@ -1345,83 +1445,28 @@
     var wrapEl = root.parentElement;
     function measureGeometry() {
       var textEl = document.querySelector('.section-text');
-      var mobile = window.innerWidth <= 760;
-      if (textEl && wrapEl) {
-        var textRect = textEl.getBoundingClientRect();
-        var wrapRect = wrapEl.getBoundingClientRect();
-        if (mobile) {
-          // .skill-wall-wrap is position:static on mobile now (see the
-          // max-width:760px rule), stacked below the card by normal
-          // document flow plus a fixed CSS padding-top — not by measuring
-          // wrapRect.top and writing an inline padding-top back onto the
-          // same element that rect was just measured from. That was
-          // self-referential: each call's wrapRect.top already reflected
-          // the previous call's padding-top, so it only ever converged by
-          // accident rather than by construction.
-          wrapEl.style.paddingLeft = '';
-          wrapEl.style.paddingTop = '';
-        } else {
-          wrapEl.style.paddingTop = '';
-          var minVisibleWall = 360;
-          var maxPad = Math.max(0, wrapRect.width - minVisibleWall);
-          var col0 = root.querySelector('.drift-wall__col');
-          // "Happy medium" target: column 0 starts a small, fixed gap past
-          // the card's own right edge — not fully clear of it the way the
-          // previous fix pushed it (that read as shoved too far right,
-          // with most of the section's width sitting empty to its left)
-          // and not flush/overlapping either (that read as clipping into
-          // the card). The card's horizontal *center* was tried first and
-          // doesn't work for a card this wide (~750px on desktop):
-          // targeting it puts the card's own right half directly over
-          // where column 0 would sit, so "centered" would mean roughly
-          // half the wall rendering behind opaque glass — not a medium,
-          // just a different way to hide it. Worse, it's provably
-          // unreachable: even with zero padding, column 0 already lands
-          // right of that center point, and padding-left only ever pushes
-          // it further right — so the previous version was silently
-          // converging on 0 while sitting 163px short of a target it
-          // could never hit.
-          var gap = 20;
-          var target = textRect.right + gap;
-          if (col0 && target > wrapRect.left + 28 && maxPad > 0) {
-            // #skillsDrift is width:100% of whatever room padding-left
-            // leaves (capped at max-width:1320px), and its tile plane
-            // self-centers *within that box* (left:50% +
-            // translate(-50%,-50%)) rather than sitting flush to its left
-            // edge — so padding-left doesn't move column 0 pixel-for-pixel,
-            // and the max-width cap changes that ratio again partway
-            // through the range. Two real measurements — at 0 padding and
-            // at a probe value — pin down the actual relationship directly
-            // instead of assuming a fixed slope.
-            wrapEl.style.paddingLeft = '0px';
-            var x0 = col0.getBoundingClientRect().left;
-            var probe = Math.min(200, maxPad);
-            wrapEl.style.paddingLeft = probe.toFixed(0) + 'px';
-            var x1 = col0.getBoundingClientRect().left;
-            var slope = probe > 0 ? (x1 - x0) / probe : 0;
-            var padTarget = slope ? (target - x0) / slope : 0;
-            padTarget = Math.max(0, Math.min(padTarget, maxPad));
-            wrapEl.style.paddingLeft = padTarget.toFixed(0) + 'px';
-            // The 0→probe slope is only exact within one side of the
-            // max-width:1320px cap; a target past that breakpoint needs a
-            // second correction using the *local* slope right around where
-            // we landed, the same way the old single-pass fix worked, just
-            // starting from a much closer point this time so it actually
-            // converges instead of overshooting into clamped territory.
-            var x2 = col0.getBoundingClientRect().left;
-            var resid = target - x2;
-            if (Math.abs(resid) > 1 && padTarget !== probe) {
-              var localSlope = (x2 - x1) / (padTarget - probe);
-              if (localSlope) {
-                padTarget = Math.max(0, Math.min(padTarget + resid / localSlope, maxPad));
-                wrapEl.style.paddingLeft = padTarget.toFixed(0) + 'px';
-              }
-            }
-          } else {
-            wrapEl.style.paddingLeft = '';
-          }
-        }
+      // No inline padding is written here on either layout any more.
+      //
+      // Desktop used to solve numerically for a padding-left that pushed
+      // column 0 clear of the text card. That existed only to compensate
+      // for the plane being mis-positioned: applyPlaneTransform() emitted
+      // an invalid transform string (see there), so the plane lost its
+      // centring translate and hung off the box's centre. Once the plane
+      // genuinely centres, the calibration is not just unnecessary but
+      // actively harmful -- it drove padding-left to its clamp and squeezed
+      // the wall into a thin strip on the far right.
+      //
+      // The wall is meant to be the section's full-bleed background, with
+      // the card floating over it: the card carries an opaque-ish blurred
+      // backdrop, and tick()'s per-tile avoidance fade dissolves tiles that
+      // drift into the card's box. Both already exist and are what keep the
+      // text legible -- keeping the columns physically clear of the card was
+      // a third, redundant mechanism that cost most of the wall's width.
+      if (wrapEl) {
+        wrapEl.style.paddingLeft = '';
+        wrapEl.style.paddingTop = '';
       }
+      planeScale = fitPlaneScale();
       var wallRect = root.getBoundingClientRect();
       if (textEl) {
         var tr = textEl.getBoundingClientRect();
@@ -1479,14 +1524,27 @@
     // enough that a stale column count until next reload is an acceptable
     // trade for not tearing the wall down mid-scroll.
     var vw = window.innerWidth;
+    // turn/depth step down with the width for a geometric reason, not taste.
+    // The plane is rotated about Y and pushed back in Z, so perspective
+    // magnifies whichever side swings nearer the viewer -- the projection is
+    // wider than the plane AND biased toward that side. On a 1440px viewport
+    // that bias is a few percent of a very wide box and disappears into the
+    // box's edge mask. On a 393px phone the same angles threw the painted
+    // content 25px right of centre and 39px past the box's right edge, which
+    // hard-cut the third column mid-word while leaving a matching gap of
+    // dead space down the left. Tiles can't simply be made narrower to
+    // compensate: 108px is already the floor at which "JavaScript" fits on
+    // one line at the tile's 15px type. Shallower angles on a narrow
+    // viewport keep the 3D read while bringing the projection back inside
+    // the box symmetrically, where the mask can fade both edges evenly.
     var sizing = vw < 480
-      ? { columns: 3, tileWidth: 108, gap: 10 }
+      ? { columns: 3, tileWidth: 108, gap: 8, turn: -4, depth: 130 }
       : vw < 760
-        ? { columns: 4, tileWidth: 140, gap: 12 }
-        : { columns: 5, tileWidth: 200, gap: 18 };
+        ? { columns: 4, tileWidth: 140, gap: 12, turn: -7, depth: 125 }
+        : { columns: 5, tileWidth: 200, gap: 18, turn: -10, depth: 120 };
     initDriftWall(host, {
       columns: sizing.columns, tileWidth: sizing.tileWidth, tileHeight: 132, gap: sizing.gap, radius: 14,
-      tilt: 12, turn: -10, perspective: 1200, depth: 120, speed: 42,
+      tilt: 12, turn: sizing.turn, roll: 0, perspective: 1200, depth: sizing.depth, speed: 42,
       direction: 'up', variance: 0.7, parallax: 0.6, lift: 64, fade: 0.2, vFade: 0.78, dim: 0.8,
       pauseOnHover: false,
       items: [
