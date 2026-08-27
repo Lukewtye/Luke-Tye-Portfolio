@@ -471,6 +471,18 @@
     -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--dw-edge), #000 calc(100% - var(--dw-edge)), transparent);
     mask-image: linear-gradient(to right, transparent, #000 var(--dw-edge), #000 calc(100% - var(--dw-edge)), transparent);
   }
+  /* No left/right edge fade on mobile. The mask is there to soften columns
+     that run past the box, but fitPlaneScale() now sizes the plane to sit
+     inside the box, so on a phone the mask was only dimming the two outer
+     columns for nothing -- on a 341px box its 20% band eats 68px a side,
+     most of a column each way. Two things matter here: override mask-image
+     rather than --dw-edge (initDriftWall() writes --dw-edge as an INLINE
+     style, which outranks any stylesheet value), and declare it AFTER the
+     rule above -- both selectors have identical specificity, so source
+     order is what decides. Desktop keeps the fade; it has width to spare. */
+  @media (max-width: 760px) {
+    #skillsDrift.drift-wall { -webkit-mask-image: none; mask-image: none; }
+  }
   /* The centring translate lives here as well as in applyPlaneTransform()'s
      JS string. top/left:50% alone put the plane's top-LEFT CORNER at the
      box's centre, so without a translate the wall renders entirely into the
