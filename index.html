@@ -143,6 +143,34 @@
   .status-inner .k { color: var(--ink-dim); }
   .status-inner .v { color: var(--ink); }
 
+  /* Live health snapshot.
+
+     The strip degrades in three steps rather than two. The markup ships the
+     last known-good numbers as the no-JS fallback and still labels them "not
+     live"; a successful fetch replaces them; a stale or failed fetch says so
+     rather than leaving numbers up that are no longer true. A status line
+     that lies while the machine is down is worse than no status line, and
+     this page's whole argument is that it reports what is actually there. */
+  .status-inner .status-dot {
+    display: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: currentColor;
+  }
+  #piStatus[data-state="live"] .status-dot,
+  #piStatus[data-state="stale"] .status-dot,
+  #piStatus[data-state="offline"] .status-dot { display: inline-block; }
+  #piStatus[data-state="live"] .status-dot { color: var(--accent); animation: pi-pulse 2.4s ease-in-out infinite; }
+  #piStatus[data-state="stale"] .status-dot { color: var(--ink-dim); }
+  #piStatus[data-state="offline"] .status-dot { color: var(--ink-dim); opacity: 0.55; }
+  #piStatus[data-state="offline"] .v { color: var(--ink-dim); }
+  @keyframes pi-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) {
+    #piStatus[data-state="live"] .status-dot { animation: none; }
+  }
+
   /* scroll-behavior: smooth deliberately left off html — it doesn't just
      govern nav-link clicks, it also governs how long the browser's own
      proximity-snap settle takes once you stop scrolling, and that duration
@@ -556,12 +584,12 @@
   </header>
 
   <div class="status">
-    <div class="frame status-inner mono">
+    <div class="frame status-inner mono" id="piStatus" data-state="static">
       <span><span class="k">host</span> <span class="v">pi · homelab</span></span>
-      <span><span class="k">uptime</span> <span class="v">45d</span></span>
-      <span><span class="k">load</span> <span class="v">0.09</span></span>
-      <span><span class="k">temp</span> <span class="v">47.7°C</span></span>
-      <span><span class="k">snapshot</span> <span class="v">Aug 12, 2026 · not live</span></span>
+      <span><span class="k">uptime</span> <span class="v" id="piUptime">45d</span></span>
+      <span><span class="k">load</span> <span class="v" id="piLoad">0.09</span></span>
+      <span><span class="k">temp</span> <span class="v" id="piTemp">47.7°C</span></span>
+      <span><span class="k" id="piFreshKey">snapshot</span> <span class="status-dot" id="piDot" aria-hidden="true"></span><span class="v" id="piFresh">Aug 12, 2026 · not live</span></span>
     </div>
   </div>
 </div>
@@ -1576,5 +1604,127 @@
       ]
     });
   }
+})();
+
+(function () {
+  // Live Pi health, read from /status.json, which a systemd timer on the Pi
+  // rewrites once a minute.
+  //
+  // Three rules govern this block:
+  //
+  // 1. Values are written with textContent, never innerHTML. The JSON is
+  //    same-origin with this page, so injecting it as markup would be stored
+  //    XSS on this domain. Every field today is a kernel-generated number, but
+  //    the rule has to outlive whoever adds the next field.
+  // 2. Freshness is judged from the payload's own "generated" timestamp, never
+  //    from the fact that the request succeeded. A cached copy, from the
+  //    browser or from Cloudflare, is therefore still reported as stale. That
+  //    is what makes it safe to let an edge cache serve this at all.
+  // 3. Polling stops while the tab is hidden and backs off on failure. A tab
+  //    left open for a week is otherwise ~10,000 requests, and an outage would
+  //    turn every open tab into a retry storm against a Pi already in trouble.
+  var strip = document.getElementById('piStatus');
+  if (!strip || !window.fetch) return;
+
+  var elUptime = document.getElementById('piUptime');
+  var elLoad = document.getElementById('piLoad');
+  var elTemp = document.getElementById('piTemp');
+  var elFresh = document.getElementById('piFresh');
+  var elKey = document.getElementById('piFreshKey');
+
+  var STALE_AFTER_MS = 5 * 60 * 1000;
+  var POLL_MS = 60000;
+  var MAX_FAILURES = 5;
+
+  var failures = 0;
+  var timer = null;
+  var lastSeen = null;
+
+  function num(v) { return typeof v === 'number' && isFinite(v); }
+
+  function ago(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return s + 's ago';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + 'm ago';
+    var h = Math.round(m / 60);
+    if (h < 48) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+
+  function offline() {
+    strip.dataset.state = 'offline';
+    elKey.textContent = 'status';
+    // The Pi renders its own clock in Pacific and ships it as "display", so
+    // the last-seen time needs no timezone maths here and does not depend on
+    // the viewer's browser carrying complete timezone data.
+    elFresh.textContent = lastSeen ? 'unreachable \u00b7 last seen ' + lastSeen : 'pi unreachable';
+  }
+
+  function render(data) {
+    // Anything not matching the exact expected shape is treated as an outage
+    // rather than partially rendered.
+    if (!data || !num(data.uptime_days) || !num(data.load1) || !num(data.temp_c) ||
+        typeof data.generated !== 'string') { offline(); return; }
+
+    var when = Date.parse(data.generated);
+    if (isNaN(when)) { offline(); return; }
+
+    var age = Date.now() - when;
+    var display = typeof data.display === 'string' ? data.display : '';
+    if (display) lastSeen = display;
+
+    elUptime.textContent = data.uptime_days + 'd';
+    elLoad.textContent = data.load1.toFixed(2);
+    elTemp.textContent = data.temp_c.toFixed(1) + '\u00b0C';
+
+    if (age > STALE_AFTER_MS) {
+      strip.dataset.state = 'stale';
+      elKey.textContent = 'last seen';
+      elFresh.textContent = (display ? display : ago(age)) + ' \u00b7 stale';
+    } else {
+      strip.dataset.state = 'live';
+      elKey.textContent = 'updated';
+      elFresh.textContent = ago(age);
+    }
+  }
+
+  function schedule(ms) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(poll, ms);
+  }
+
+  // force=true bypasses the visibility gate. The first load always fetches
+  // once, even into a background tab, so the strip is already correct when the
+  // reader first looks at it; it is one request per page load, no different
+  // from any other asset. Only the *repeating* poll is gated, which is what
+  // bounds an idle tab's cost.
+  function poll(force) {
+    if (document.hidden && !force) { schedule(POLL_MS); return; }
+
+    // credentials omitted: this endpoint is public and must never be sent a
+    // cookie or an Authorization header.
+    fetch('/status.json', { credentials: 'omit', cache: 'no-cache' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        failures = 0;
+        render(data);
+        schedule(POLL_MS);
+      })
+      .catch(function () {
+        failures++;
+        offline();
+        if (failures < MAX_FAILURES) schedule(POLL_MS * Math.pow(2, failures - 1));
+      });
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { failures = 0; poll(true); }
+  });
+
+  poll(true);
 })();
 </script>

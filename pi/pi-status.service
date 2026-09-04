@@ -1,0 +1,36 @@
+[Unit]
+# The [Unit] header is not decoration. Omitting it once caused five directives
+# in a sibling unit on this host to be silently discarded.
+Description=Publish the public health snapshot for luketye.dev
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/sites/pi-status.sh
+
+# This unit reads three kernel files and writes one file. It needs no network,
+# no new privileges, and no write access anywhere except the webroot. User
+# units support a narrower set of these than system units, so each was checked
+# with `systemd-analyze --user security pi-status.service` rather than assumed.
+NoNewPrivileges=yes
+# UMask is set explicitly rather than inherited. The login shell's umask is
+# 0002, which would create the temp file group-writable for the window
+# before the script chmods it.
+UMask=022
+# The script makes no network call of any kind. Confirmed enforced on this
+# host: /proc/net/dev lists 15 interfaces normally and only lo inside the
+# unit, so this is a real namespace and not a silently ignored directive.
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=%h/sites/luketye.dev
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

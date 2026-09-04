@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the luketye.dev health snapshot every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=pi-status.service
+
+[Install]
+WantedBy=timers.target
